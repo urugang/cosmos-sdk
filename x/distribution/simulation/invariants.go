@@ -39,9 +39,36 @@ func NonNegativeOutstandingInvariant(k distr.Keeper) simulation.Invariant {
 func CanWithdrawInvariant(k distr.Keeper, sk stake.Keeper) simulation.Invariant {
 	return func(ctx sdk.Context) error {
 
-		// TODO
+		// cache, we don't want to write changes
+		ctx, _ = ctx.CacheContext()
 
-		// all ok
+		outstanding := k.GetOutstandingRewards(ctx)
+		fmt.Printf("Outstanding rewards: %v\n", outstanding)
+
+		// iterate over all bonded validators, withdraw commission
+		sk.IterateBondedValidatorsByPower(ctx, func(_ int64, val sdk.Validator) (stop bool) {
+			_ = k.WithdrawValidatorCommission(ctx, val.GetOperator())
+			return false
+		})
+
+		// iterate over all current delegations, withdraw rewards
+		dels := sk.GetAllDelegations(ctx)
+		for _, delegation := range dels {
+			_ = k.WithdrawDelegationRewards(ctx, delegation.DelegatorAddr, delegation.ValidatorAddr)
+		}
+
+		remaining := k.GetOutstandingRewards(ctx)
+		if len(remaining) > 0 && remaining[0].Amount.LT(sdk.ZeroDec()) {
+			return fmt.Errorf("Negative remaining coins: %v", remaining)
+		}
+
+		fmt.Printf("remaining coins: %v\n", remaining)
+		// TODO somehow cap error
+		// permit up to 10% error due to rounding
+		// if len(remaining) > 0 && remaining[0].Amount.Quo(outstanding[0].Amount).GT(sdk.OneDec().Quo(sdk.NewDec(100))) {
+		//	return fmt.Errorf("High error - outstanding %v, remaining %v", outstanding, remaining)
+		//}
+
 		return nil
 	}
 }
